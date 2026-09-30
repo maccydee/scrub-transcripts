@@ -135,7 +135,7 @@ class FileTests(unittest.TestCase):
         self.f = self.dir / "session.jsonl"
         gh = FAKES["github_token"]
         records = [
-            _rec("user", f"here is my token {gh} please use it"),
+            _rec("user", f"here is my token {gh} and DB_PASSWORD=S3cr3tPa55 please use it"),
             _rec("assistant", [{"type": "thinking", "thinking": "ok", "signature": "EqQBCkgIAxABGAIiQL" + "x" * 40},
                                {"type": "text", "text": "Thanks, using it now."}]),
             _rec("user", [{"type": "tool_result", "tool_use_id": "t1",
@@ -185,6 +185,16 @@ class FileTests(unittest.TestCase):
         before = self.f.read_bytes()
         scrub.main(["--path", str(self.f), "--apply", "--workers", "1", "--json"])
         self.assertEqual(self.f.read_bytes(), before)
+
+    def test_kinds_filter_snippet_hides_other_secrets(self):
+        import io
+        from contextlib import redirect_stdout
+        for flag in (["--kinds", "github_token"], ["--kinds", "high_entropy", "--aggressive"]):
+            buf = io.StringIO()
+            with redirect_stdout(buf):
+                scrub.main(["--path", str(self.f), "--workers", "1", *flag])
+            self.assertNotIn("S3cr3tPa55", buf.getvalue(), flag)
+            self.assertNotIn(FAKES["github_token"], buf.getvalue(), flag)
 
     def test_report_never_contains_secret(self):
         import io

@@ -53,6 +53,8 @@ include `.env` files), `shell-snapshots`, `tasks` and `plans`.
 A full scan of several GB takes a few minutes across all cores. To narrow it:
 - `--since 2` covers files modified in the last 2 days (use this for "I just pasted my password")
 - `--path <file-or-dir>` scans one session or project
+- `--root <dir>` treats `<dir>` as the home directory, for scanning a backup, a copied
+  profile, or a user who says "my Claude data is at X". All the store paths above are resolved under it.
 - `--json` gives machine-readable output; `--max-rows N` controls how many rows print
 
 Exit code 1 means findings exist (dry run). 0 means the scan was clean, or `--apply` succeeded.

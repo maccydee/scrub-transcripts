@@ -339,7 +339,7 @@ class Detector:
     aggressive: bool = False
     kinds: frozenset | None = None
 
-    def spans(self, text: str, human: bool) -> list[tuple[int, int, str, str]]:
+    def spans(self, text: str, human: bool, all_kinds: bool = False) -> list[tuple[int, int, str, str]]:
         if not _prefilter(text, self, entropy_ok=human):
             return []
         found: list[tuple[int, int, str, str]] = []
@@ -356,7 +356,7 @@ class Detector:
                 i = text.find(lit, i + len(lit))
         if self.aggressive and human:
             found.extend(entropy_spans(text))
-        if self.kinds:
+        if self.kinds and not all_kinds:
             found = [f for f in found if f[2] in self.kinds]
         return merge_spans(found)
 
@@ -423,14 +423,19 @@ def redact_string(s: str, det: Detector, human: bool, role: str, file: str, line
     if not spans:
         return s
     new = apply_spans(s, spans)
-    # positions of each redaction marker in the new string, for snippets
-    shift = 0
+    # Snippets come from a copy with EVERY detected secret redacted, not just the
+    # kinds being written: with --kinds, a different secret on the same line must
+    # still never reach the report.
+    full = det.spans(s, human, all_kinds=True) if det.kinds else spans
+    shown = apply_spans(s, full)
+    marker_pos, shift = [], 0
+    for start, end, kind, _k in full:
+        marker_pos.append((start, end, start + shift))
+        shift += len(f"[REDACTED:{kind}]") - (end - start)
     for start, end, kind, key in spans:
-        pos = start + shift
-        marker = f"[REDACTED:{kind}]"
-        shift += len(marker) - (end - start)
+        pos = next((p for a, b, p in marker_pos if a <= start < b), 0)
         findings.append(Finding(file, line, role, kind, end - start,
-                                _prefix_for(kind, s[start:end]), key, _snippet(new, [pos])))
+                                _prefix_for(kind, s[start:end]), key, _snippet(shown, [pos])))
     return new
 
 
@@ -607,9 +612,17 @@ def is_binary(p: Path) -> bool:
         return True
 
 
+def rebase_stores(stores, root: Path):
+    """Point the default store paths at another home directory (a backup, a copied profile)."""
+    out = []
+    for label, p, pattern, fmt in stores:
+        out.append((label, root / p.relative_to(HOME), pattern, fmt))
+    return out
+
+
 def collect(stores, paths, since_days, active_minutes, include_active):
     now = time.time()
-    targets, skipped_active = [], []
+    targets, skipped_active, seen = [], [], set()
     if paths:
         stores = []
         for p in paths:
@@ -621,8 +634,9 @@ def collect(stores, paths, since_days, active_minutes, include_active):
             continue
         files = [root] if pattern is None else [f for f in root.glob(pattern) if f.is_file()]
         for f in files:
-            if f.name.endswith(".scrub-tmp"):
+            if f.name.endswith(".scrub-tmp") or f.resolve() in seen:
                 continue
+            seen.add(f.resolve())
             try:
                 mt = f.stat().st_mtime
             except OSError:
@@ -652,13 +666,14 @@ def load_literals(path: str | None) -> list[str]:
 
 
 def short(p: str) -> str:
-    return p.replace(str(HOME), "~")
+    return p.replace(str(HOME) + "/", "~/")
 
 
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--apply", action="store_true", help="rewrite files in place (default: dry run)")
     ap.add_argument("--all", action="store_true", help="also scan file-history, shell-snapshots, tasks, plans")
+    ap.add_argument("--root", help="treat this dir as the home directory (scan a backup or copied profile)")
     ap.add_argument("--path", action="append", default=[], help="scan only this file/dir (repeatable)")
     ap.add_argument("--since", type=float, default=0, help="only files modified in the last N days")
     ap.add_argument("--values-file", help="file of exact values to scrub, one per line (you create it; never paste them in chat)")
@@ -674,6 +689,8 @@ def main(argv=None):
 
     literals = load_literals(a.values_file)
     stores = DEFAULT_STORES + (EXTRA_STORES if a.all else [])
+    if a.root:
+        stores = rebase_stores(stores, Path(a.root).expanduser().resolve())
     targets, skipped = collect(stores, a.path, a.since, a.active_minutes, a.include_active)
 
     kinds = frozenset(a.kinds.split(",")) if a.kinds else None
