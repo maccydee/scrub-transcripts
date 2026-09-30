@@ -707,6 +707,10 @@ def main(argv=None):
     ap.add_argument("--no-report-file", action="store_true", help="don't save a report file after --apply")
     ap.add_argument("--workers", type=int, default=max(1, (os.cpu_count() or 2) - 1))
     a = ap.parse_args(argv)
+    # Windows consoles default to cp1252, which can't print the table borders or ⏎
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, "reconfigure") and (stream.encoding or "").lower().replace("-", "") != "utf8":
+            stream.reconfigure(encoding="utf-8", errors="replace")
 
     literals = load_literals(a.values_file)
     stores = DEFAULT_STORES + (EXTRA_STORES if a.all else [])
