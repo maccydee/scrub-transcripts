@@ -35,8 +35,10 @@ def confidence(kind: str) -> str:
 
 def where(path: str) -> str:
     p = Path(path)
-    stem = p.stem[:8] + "…" if UUID_RE.match(p.stem) else p.stem
+    stem = p.stem[:8] + "…" if UUID_RE.match(p.stem) else p.stem[:22]
     parent = p.parent.name
+    if parent == "subagents" and UUID_RE.match(p.parent.parent.name):  # "<session>/subagents/agent-x"
+        parent = p.parent.parent.name[:8] + "…/sub"
     if parent.startswith("-"):  # Claude project dirs: "-Users-sam-webapp" -> "webapp"
         parent = re.sub(r"^-(Users|home)-[^-]+-?", "", parent) or "~"
     return f"{parent}/{stem}{p.suffix}"
