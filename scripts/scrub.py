@@ -25,6 +25,9 @@ from concurrent.futures import ProcessPoolExecutor
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import report  # noqa: E402
+
 HOME = Path.home()
 
 
@@ -697,8 +700,11 @@ def main(argv=None):
     ap.add_argument("--active-minutes", type=float, default=10, help="skip files modified within N minutes (live sessions)")
     ap.add_argument("--include-active", action="store_true", help="do not skip recently modified files (unsafe for live sessions)")
     ap.add_argument("--kinds", help="comma list: only report/redact these kinds")
-    ap.add_argument("--json", action="store_true", help="machine-readable report on stdout")
-    ap.add_argument("--max-rows", type=int, default=60, help="finding rows to print in the text report")
+    ap.add_argument("--format", choices=("text", "markdown", "json"), default="text",
+                    help="text: box tables for a terminal; markdown: pipe tables for chat; json: raw")
+    ap.add_argument("--json", action="store_true", help="same as --format json")
+    ap.add_argument("--report", help="also save the report as markdown here (default after --apply: <home>/.claude/scrub-reports/)")
+    ap.add_argument("--no-report-file", action="store_true", help="don't save a report file after --apply")
     ap.add_argument("--workers", type=int, default=max(1, (os.cpu_count() or 2) - 1))
     a = ap.parse_args(argv)
 
@@ -741,40 +747,43 @@ def main(argv=None):
         "seconds": round(time.time() - t0, 1),
     }
 
-    if a.json:
+    fmt = "json" if a.json else a.format
+    remaining = 0
+    if a.apply and written:
+        # prove it: re-scan exactly the files we rewrote
+        by_path = {f: (fm, st) for f, fm, st in targets}
+        recheck = [process_file((f, by_path[f][0], by_path[f][1], literals, a.aggressive, False, kinds)) for f in written]
+        remaining = sum(len(r["findings"]) for r in recheck)
+    summary["remaining_after_apply"] = remaining if a.apply else None
+
+    home = Path(a.root).expanduser().resolve() if a.root else HOME
+    report_path = None
+    if a.report:
+        report_path = Path(a.report).expanduser()
+    elif a.apply and not a.no_report_file and findings:
+        report_path = home / ".claude" / "scrub-reports" / time.strftime("%Y-%m-%d-%H%M%S.md")
+
+    if a.apply:
+        render = lambda md, rp: report.applied_report(summary, findings, remaining, rp, md)  # noqa: E731
+    else:
+        cmd = " ".join(["python3", short(str(Path(__file__).resolve()))]
+                       + [x for x in (argv if argv is not None else sys.argv[1:])
+                          if x not in ("--json",) and not x.startswith("--format")] + ["--apply"])
+        render = lambda md, rp: report.findings_report(summary, findings, cmd, md)  # noqa: E731
+
+    if report_path:
+        report_path.parent.mkdir(parents=True, exist_ok=True)
+        report_path.write_text(render(True, short(str(report_path))), encoding="utf-8")
+        os.chmod(report_path, 0o600)
+        summary["report_file"] = short(str(report_path))
+
+    if fmt == "json":
         for f in findings:
             f["file"] = short(f["file"])
         json.dump({"summary": summary, "findings": findings}, sys.stdout, ensure_ascii=False, indent=1)
         print()
     else:
-        s = summary
-        print(f"{s['mode'].upper()}: {s['findings']} findings in {s['files_with_findings']} of "
-              f"{s['files_scanned']} files ({s['seconds']}s)")
-        if a.apply:
-            print(f"rewritten: {s['files_rewritten']} files")
-        for label in ("by_kind", "by_role", "by_store"):
-            if s[label]:
-                print(f"  {label[3:]:<6} " + ", ".join(f"{k} {v}" for k, v in s[label].items()))
-        if skipped:
-            print(f"  skipped {len(skipped)} active file(s) modified in the last {a.active_minutes:g} min "
-                  f"(re-run later, or --include-active once those sessions are closed)")
-        for e in s["errors"]:
-            print(f"  ERROR {e['file']}: {e['error']}")
-        if findings:
-            print()
-            rows = []
-            for f in findings[: a.max_rows]:
-                fp = Path(f["file"])
-                loc = f"{fp.parent.name[-28:]}/{fp.name}:{f['line']}"
-                label = f["kind"] + (f" ({f['prefix']}…)" if f["prefix"] else "")
-                key = f"[{f['key']}] " if f["key"] else ""
-                rows.append((label, f["role"], str(f["length"]), loc, key + f["snippet"][:100]))
-            w = [max(len(r[i]) for r in rows + [("kind", "role", "len", "file:line", "")]) for i in range(4)]
-            print(f"{'kind':<{w[0]}}  {'role':<{w[1]}}  {'len':>{w[2]}}  {'file:line':<{w[3]}}  context (already redacted)")
-            for r in rows:
-                print(f"{r[0]:<{w[0]}}  {r[1]:<{w[1]}}  {r[2]:>{w[2]}}  {r[3]:<{w[3]}}  {r[4]}")
-            if len(findings) > a.max_rows:
-                print(f"… {len(findings) - a.max_rows} more (use --json or --max-rows)")
+        print(render(fmt == "markdown", short(str(report_path)) if report_path else None))
     return 1 if findings and not a.apply else 0
 
 

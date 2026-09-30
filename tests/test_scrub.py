@@ -151,7 +151,36 @@ class FileTests(unittest.TestCase):
         self.mtime = self.f.stat().st_mtime_ns
 
     def run_main(self, *args):
-        return scrub.main(["--path", str(self.f), "--json", "--workers", "1", *args])
+        return scrub.main(["--path", str(self.f), "--json", "--workers", "1",
+                           "--report", str(self.dir / "report.md"), *args])
+
+    def capture(self, *args):
+        import io
+        from contextlib import redirect_stdout
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            scrub.main(["--path", str(self.f), "--workers", "1", "--report", str(self.dir / "report.md"), *args])
+        return buf.getvalue()
+
+    def test_dry_run_report_has_table_and_next_steps(self):
+        for fmt, marker in (("text", "┌"), ("markdown", "|---")):
+            out = self.capture("--format", fmt)
+            self.assertIn(marker, out)
+            self.assertIn("github_token", out)
+            self.assertIn("certain", out)
+            self.assertRegex(out, r"(?i)next steps")
+            self.assertIn("--apply", out)
+            self.assertNotIn(FAKES["github_token"], out)
+
+    def test_apply_report_shows_replacements_and_is_saved(self):
+        out = self.capture("--apply")
+        self.assertIn("[REDACTED:github_token]", out)
+        self.assertIn("[REDACTED:password]", out)
+        self.assertIn("0 secrets left", out)
+        saved = (self.dir / "report.md").read_text()
+        self.assertIn("[REDACTED:github_token]", saved)
+        self.assertNotIn(FAKES["github_token"], saved + out)
+        self.assertNotIn("S3cr3tPa55", saved + out)
 
     def test_dry_run_does_not_write(self):
         before = self.f.read_bytes()
@@ -183,7 +212,7 @@ class FileTests(unittest.TestCase):
     def test_active_file_skipped(self):
         os.utime(self.f, None)  # now
         before = self.f.read_bytes()
-        scrub.main(["--path", str(self.f), "--apply", "--workers", "1", "--json"])
+        scrub.main(["--path", str(self.f), "--apply", "--workers", "1", "--json", "--no-report-file"])
         self.assertEqual(self.f.read_bytes(), before)
 
     def test_kinds_filter_snippet_hides_other_secrets(self):
@@ -192,7 +221,7 @@ class FileTests(unittest.TestCase):
         for flag in (["--kinds", "github_token"], ["--kinds", "high_entropy", "--aggressive"]):
             buf = io.StringIO()
             with redirect_stdout(buf):
-                scrub.main(["--path", str(self.f), "--workers", "1", *flag])
+                scrub.main(["--path", str(self.f), "--workers", "1", "--no-report-file", *flag])
             self.assertNotIn("S3cr3tPa55", buf.getvalue(), flag)
             self.assertNotIn(FAKES["github_token"], buf.getvalue(), flag)
 
@@ -202,7 +231,7 @@ class FileTests(unittest.TestCase):
         for flag in ([], ["--json"]):
             buf = io.StringIO()
             with redirect_stdout(buf):
-                scrub.main(["--path", str(self.f), "--workers", "1", *flag])
+                scrub.main(["--path", str(self.f), "--workers", "1", "--no-report-file", *flag])
             out = buf.getvalue()
             self.assertNotIn(FAKES["github_token"], out)
             self.assertNotIn("S3cr3tPa55", out)

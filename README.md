@@ -13,17 +13,48 @@ prompt, or Claude runs `cat .env`, that value stays in `~/.claude/projects` and 
 prompt history until you delete it.
 
 ```
-DRY-RUN: 8 findings in 3 of 3 files (0.0s)
-  kind   password 3, github_token 2, telegram_bot_token 1, anthropic_key 1, url_password 1
-  role   user 4, tool_result 3, assistant 1
-  store  transcripts 6, prompt-history 2
+scrub-transcripts: Dry run, nothing changed
 
-kind                      role         len  file:line                         context (already redacted)
-telegram_bot_token        tool_result   46  -Users-sam-webapp/sess-2.jsonl:2  TELEGRAM_BOT_TOKEN=[REDACTED:telegram_bot_token]⏎ANTHROPIC_API_KEY=[REDACTED:anthropic_ke…
-anthropic_key (sk-ant-…)  tool_result   73  -Users-sam-webapp/sess-2.jsonl:2  …N=[REDACTED:telegram_bot_token]⏎ANTHROPIC_API_KEY=[REDACTED:anthropic_key]⏎FTP_PASS=[REDACTED:passw
-github_token (ghp_…)      user          44  -Users-sam-webapp/sess-1.jsonl:1  here's my github token [REDACTED:github_token] and the db password is [REDACTED:password], de…
-url_password              assistant     14  -Users-sam-webapp/sess-1.jsonl:2  psql postgres://app:[REDACTED:url_password]@db.internal:5432/app -c 'select 1'
-github_token (ghp_…)      user          44  .claude/history.jsonl:1           here's my github token [REDACTED:github_token] and the db password is [REDACTED:password], de…
+Scanned 3 files in 0.0s. Found 8 secrets in 3 files.
+
+WHAT WAS FOUND
+
+┌──────────────────────────┬───────┬───────┬────────────┬──────────────────────┐
+│ Secret                   │ Found │ Files │ Confidence │ Where it came from   │
+├──────────────────────────┼───────┼───────┼────────────┼──────────────────────┤
+│ github_token (ghp_…)     │     2 │     2 │ certain    │ you 2                │
+│ telegram_bot_token       │     1 │     1 │ certain    │ tool output 1        │
+│ anthropic_key (sk-ant-…) │     1 │     1 │ certain    │ tool output 1        │
+│ url_password             │     1 │     1 │ certain    │ Claude 1             │
+│ password                 │     3 │     3 │ likely     │ you 2, tool output 1 │
+└──────────────────────────┴───────┴───────┴────────────┴──────────────────────┘
+
+NEXT STEPS
+
+1. Skim the table. "certain" rows are real credentials. "likely" rows are labelled values, so a few may be harmless (redacting those costs nothing).
+2. Redact them:  python3 ~/.claude/skills/scrub-transcripts/scripts/scrub.py --root demo-home --apply
+3. Rotate these, because redacting the logs doesn't un-send them: github_token, telegram_bot_token, anthropic_key, url_password.
+4. Check whether any of these are live and rotate the ones that are: password.
+```
+
+After `--apply`, it reports what replaced each secret and re-scans the changed files:
+
+```
+scrub-transcripts: Done
+
+Replaced 8 secrets in 3 files (0.0s). Re-scan of the changed files: 0 secrets left.
+
+WHAT REPLACED THEM
+
+┌───────────────────────────────┬───────┬───────┬───────────────────────────────────┐
+│ Replaced with                 │ Count │ Files │ Was                               │
+├───────────────────────────────┼───────┼───────┼───────────────────────────────────┤
+│ [REDACTED:github_token]       │     2 │     2 │ github_token (ghp_…), certain     │
+│ [REDACTED:telegram_bot_token] │     1 │     1 │ telegram_bot_token, certain       │
+│ [REDACTED:anthropic_key]      │     1 │     1 │ anthropic_key (sk-ant-…), certain │
+│ [REDACTED:url_password]       │     1 │     1 │ url_password, certain             │
+│ [REDACTED:password]           │     3 │     3 │ password, likely                  │
+└───────────────────────────────┴───────┴───────┴───────────────────────────────────┘
 ```
 
 That is real output from the demo profile in [`examples/make_demo.py`](examples/make_demo.py).
@@ -87,6 +118,8 @@ python3 ~/.claude/skills/scrub-transcripts/scripts/scrub.py --apply    # redact 
 - It skips files modified in the last 10 minutes, because a live session may still be
   writing to them. It also leaves a file alone if it changes during the scrub.
 - It keeps no backup, because a backup of a secret is just another copy of it.
+- It saves the completion report as markdown in `~/.claude/scrub-reports/` (mode 600).
+  The report only contains redacted context, so it is safe to keep.
 
 ## Limits
 

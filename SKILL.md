@@ -36,8 +36,13 @@ The script is `scripts/scrub.py`. It uses only the standard library and needs Py
 ### 1. Dry run
 
 ```bash
-python3 ~/.claude/skills/scrub-transcripts/scripts/scrub.py
+python3 ~/.claude/skills/scrub-transcripts/scripts/scrub.py --format markdown
 ```
+
+In chat, always pass `--format markdown`. The script prints a ready-made report: a
+summary table, one redacted example per kind, and numbered next steps with the exact
+`--apply` command. A person running it in a terminal gets the same report as box tables
+(the default `--format text`). `--format json` gives raw data if you need to dig.
 
 Scans by default:
 
@@ -63,20 +68,24 @@ A full scan of several GB takes a few minutes across all cores. To narrow it:
 
 Exit code 1 means findings exist (dry run). 0 means the scan was clean, or `--apply` succeeded.
 
-### 2. Read the report with the user
+### 2. Show the report, then stop
 
-Lead with the numbers: how many findings, of which kinds, and in which roles:
-- `user`: typed or pasted by the user. These are the ones they asked about.
-- `tool_result`: printed by a tool (a `cat .env`, an API response, a web page).
-- `assistant`: Claude repeated it, for example in a command it ran.
-- `meta`: bookkeeping records such as queue entries, titles and last-prompt, which duplicate user prompts.
+Paste the script's markdown report into your reply **as it is**. Don't paraphrase it
+into prose or trim the tables, because the table is what the user reads. Add at most two
+sentences of your own above it, such as the one thing that stands out ("3 of these are
+Telegram bot tokens, so rotate those today") or a false-positive pattern you noticed in
+the examples. Then wait for the go-ahead, unless the request already asked for removal
+("get it out of the logs"). That counts as the go-ahead, so go straight to step 3.
 
-Then flag any **known-format** kinds (`telegram_bot_token`, `github_token`,
-`anthropic_key`, `stripe_key`, `private_key`, `url_password`, `jwt`…) as real
-credentials to rotate. The contextual kinds (`password`, `secret_assignment`,
-`url_token`) are heuristic. Skim their snippets for anything that obviously isn't a
-secret. Over-redacting an old transcript costs almost nothing, so a few false
-positives do not justify a detector change. A whole *category* of false positives does.
+How to read it:
+- **Confidence.** "certain" means a vendor token format (GitHub, Telegram, Anthropic,
+  private key, a password inside a URL…) and it is a real credential. "likely" means a
+  value after a label like `password:` or `api_key=`. A few of those may be harmless;
+  over-redacting old logs costs nothing, so don't argue a handful of them out. Only a whole
+  category of false positives is worth raising.
+- **Where it came from.** "you" means typed or pasted by the user, "tool output" means
+  printed by a command or API, "Claude" means the model repeated it, and "session data"
+  means bookkeeping records that duplicate prompts.
 
 Kinds:
 
@@ -93,14 +102,20 @@ Kinds:
 | `literal` | an exact value from `--values-file` |
 | `high_entropy` | `--aggressive` only: a bare random-looking string in user-typed text |
 
-### 3. Apply
+### 3. Apply, then show the completion report
 
 ```bash
-python3 ~/.claude/skills/scrub-transcripts/scripts/scrub.py --apply
+python3 ~/.claude/skills/scrub-transcripts/scripts/scrub.py --format markdown --apply
 ```
 
-Use the same scope flags as the dry run. Options: `--kinds telegram_bot_token,password`
+Use the same scope flags as the dry run. `--kinds telegram_bot_token,password`
 redacts only those kinds, and `--all` also covers the extra stores.
+
+The completion report shows what replaced each secret (`[REDACTED:<kind>]` per kind),
+the files changed, how the redacted lines read now, and a re-scan of the changed files
+that should say "0 secrets left". Paste it as it is, as in step 2. It is also saved as markdown
+under `~/.claude/scrub-reports/` (masked content only, mode 600). Give the user that path.
+Finish with the rotate list from its next steps. Rotating is the part that actually protects them.
 
 How the write is kept safe:
 - Only lines that contain a finding are rewritten. Every other line stays byte-identical.
@@ -114,8 +129,6 @@ How the write is kept safe:
 - If a file changes between read and write, it is left alone and reported.
 - No backup copy is kept. A backup of a secret is just another copy of the secret.
 
-Re-run the dry run afterwards. It should report 0 findings for the scope you applied,
-apart from skipped active files.
 
 ### Scrubbing a specific value the detectors miss
 
