@@ -62,7 +62,7 @@ NEGATIVE_TEXT = [
     'password: "${DB_PASSWORD}"',
     "API_KEY=your_api_key_here",
     "password: [REDACTED:password]",
-    "see https://github.com/maccydee/rate-cv/blob/main/README.md",
+    "see https://github.com/example/project/blob/main/README.md",
     "sk-learn-is-a-python-library-for-machine-learning-stuff",
     "next_page_token: CiAKGjBpNDd2Nmp2Zml2cXRkMGx",
     "token_file: ~/.config/app/token.json",

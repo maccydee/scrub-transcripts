@@ -26,7 +26,18 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
 HOME = Path.home()
-APP_SUPPORT = HOME / "Library" / "Application Support" / "Claude"
+
+
+def _desktop_app_dir() -> Path:
+    """Where the Claude desktop app keeps its data on this OS."""
+    if sys.platform == "darwin":
+        return HOME / "Library" / "Application Support" / "Claude"
+    if sys.platform.startswith("win"):
+        return Path(os.environ.get("APPDATA", HOME / "AppData" / "Roaming")) / "Claude"
+    return Path(os.environ.get("XDG_CONFIG_HOME", HOME / ".config")) / "Claude"
+
+
+APP_SUPPORT = _desktop_app_dir()
 
 # (label, root, glob, format)
 DEFAULT_STORES = [
@@ -616,7 +627,11 @@ def rebase_stores(stores, root: Path):
     """Point the default store paths at another home directory (a backup, a copied profile)."""
     out = []
     for label, p, pattern, fmt in stores:
-        out.append((label, root / p.relative_to(HOME), pattern, fmt))
+        try:
+            rel = p.relative_to(HOME)
+        except ValueError:  # APPDATA/XDG pointing outside home: skip rather than scan the wrong tree
+            continue
+        out.append((label, root / rel, pattern, fmt))
     return out
 
 
@@ -747,12 +762,17 @@ def main(argv=None):
             print(f"  ERROR {e['file']}: {e['error']}")
         if findings:
             print()
-            print(f"{'kind':<20} {'role':<11} {'len':>4}  {'file:line':<52} context (already redacted)")
+            rows = []
             for f in findings[: a.max_rows]:
-                loc = f"{short(f['file'])[-45:]}:{f['line']}"
+                fp = Path(f["file"])
+                loc = f"{fp.parent.name[-28:]}/{fp.name}:{f['line']}"
                 label = f["kind"] + (f" ({f['prefix']}…)" if f["prefix"] else "")
                 key = f"[{f['key']}] " if f["key"] else ""
-                print(f"{label:<20} {f['role']:<11} {f['length']:>4}  {loc:<52} {key}{f['snippet'][:110]}")
+                rows.append((label, f["role"], str(f["length"]), loc, key + f["snippet"][:100]))
+            w = [max(len(r[i]) for r in rows + [("kind", "role", "len", "file:line", "")]) for i in range(4)]
+            print(f"{'kind':<{w[0]}}  {'role':<{w[1]}}  {'len':>{w[2]}}  {'file:line':<{w[3]}}  context (already redacted)")
+            for r in rows:
+                print(f"{r[0]:<{w[0]}}  {r[1]:<{w[1]}}  {r[2]:>{w[2]}}  {r[3]:<{w[3]}}  {r[4]}")
             if len(findings) > a.max_rows:
                 print(f"… {len(findings) - a.max_rows} more (use --json or --max-rows)")
     return 1 if findings and not a.apply else 0
