@@ -304,7 +304,7 @@ def contextual_spans(text: str) -> list[tuple[int, int, str, str]]:
             if not quoted:
                 val = val.rstrip(".!?:")
                 if in_url:
-                    val = re.split(r"[&#\"\\]", val, 1)[0]
+                    val = re.split(r"[&#\"\\]", val, maxsplit=1)[0]
             if _value_ok(key, val, quoted, flag, sep):
                 vs = m.start(g)
                 if in_url:
