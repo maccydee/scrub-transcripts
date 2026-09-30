@@ -42,8 +42,8 @@ It's a small sample, but it shows the failure is real.
 
 The skill has two parts.
 
-- **A scanner** (`scripts/scrub.py`, standard library only). It knows the formats of
-  about 20 vendor tokens, including Anthropic, OpenAI, GitHub, AWS, Google, Slack, Stripe,
+- **A scanner** (`scripts/scrub.py`, standard library only). It knows 23 token
+  formats, including Anthropic, OpenAI, GitHub, AWS, Google, Slack, Stripe,
   Telegram and private keys. It also catches labelled values such as `DB_PASSWORD=…`,
   `Password: …`, `my password is …`, `--password=…` and `postgres://user:pass@host`.
 - **Rules for the model.** Dry run first, never echo a secret, never ask for one in
