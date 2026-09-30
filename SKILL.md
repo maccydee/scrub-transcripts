@@ -1,5 +1,6 @@
 ---
 name: scrub-transcripts
+model: sonnet
 description: Find and redact credentials that ended up in Claude's local transcripts — passwords, API keys, bot tokens, private keys, DB/FTP URLs with passwords — whether the user typed or pasted them into a prompt, or a tool printed them (cat .env, gh auth status, a config file). Scans Claude Code session logs (~/.claude/projects), prompt history (~/.claude/history.jsonl) and the Claude desktop app's session stores, reports findings without ever printing a secret, then rewrites the files in place with [REDACTED:<kind>]. Use whenever the user says they pasted/typed/leaked a password, key or token into Claude, asks to scrub, sanitise, clean or redact transcripts, chat history, session logs or prompt history, wants to check whether any secrets are sitting in Claude's logs, is about to share or back up ~/.claude, or invokes /scrub-transcripts. Trigger even if they only say "I just gave you my password, get rid of it".
 ---
 
